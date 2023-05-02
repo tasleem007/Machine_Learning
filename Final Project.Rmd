@@ -1,0 +1,861 @@
+---
+title: "Final Projecct"
+author: "Tasleem Moossun"
+date: "2023-04-28"
+output: html_document
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Descriptive Exloratory Analysis
+
+Before diving into deeper analysis and modeling, it is essential to
+perform Descriptive (Exploratory) Tasks to gain a solid understanding of
+the data set and its underlying structure.
+
+1.  Identifying potential data quality issues, such as missing values,
+    outliers, and errors, which may negatively impact the performance of
+    machine learning models.
+
+Here are the steps that I have taken for the Descriptive analysis:
+
+1)  I have removed the URL column from the data frame as it was not
+    providing additional predictive power to any models and it was not
+    possible to turn it in factor variable as well.
+
+2)  The missing values have also been removed from the data frame using
+    complete cases
+
+3)  Any character variables have then been converted to factor variables
+
+4)  Because I will later be using a linear model and a logistic model, I
+    have decided to remove the variables that have a high correlation
+    factor. I have therefore set a threshold of 0.7 and any variables
+    that have a correlation factor above 0.7 are then removed from the
+    data frame. This will help with multi-collinearity.
+
+5)  Then I have attempted to identify the outliers in the df - Since the
+    models such as randomForest, gbm usually takes care of outliers, I
+    will not be removing them from the df.
+
+```{r 1 setup, include = TRUE}
+library(readr)
+library(corrplot)
+library(caret)
+
+OnlineNewsPopularity <- read_csv("OnlineNewsPopularity.csv")
+
+df <- OnlineNewsPopularity
+
+str(df)
+
+df2 <- subset(df, select = -url)
+
+which(is.na(df2))
+
+df2 <- df2[complete.cases(df2), ]
+
+for (i in 1:ncol(df2)) {
+  if(is.character(df2[, i])) df[,i] <- as.factor(df2[,i])
+}
+
+# Calculate correlation matrix
+corr_matrix <- cor(df2)
+
+# Visualize correlation matrix
+corrplot(corr_matrix, type = "upper", method = "circle", order = "hclust", tl.col = "black",tl.cex = 0.3, cl.cex = 0.3, tl.srt = 45)
+
+# Set the correlation threshold
+threshold <- 0.7
+
+# Identify highly correlated variables
+highly_correlated <- findCorrelation(corr_matrix, cutoff = threshold)
+
+# Print the index of highly correlated variables
+cat("Highly correlated variables:\n")
+print(highly_correlated)
+
+# Remove highly correlated variables from the dataframe
+df2_cleaned <- df2[, -highly_correlated]
+
+# Recalculate the correlation matrix for the cleaned data
+corr_matrix_cleaned <- cor(df2_cleaned)
+
+# Visualize the cleaned correlation matrix
+corrplot(corr_matrix_cleaned, type = "upper", method = "circle", order = "hclust", tl.col = "black", tl.cex = 0.3, cl.cex = 0.3, tl.srt = 45)
+
+
+# Function to detect outliers
+find_outliers <- function(x) {
+  quartiles <- quantile(x, c(.25, .75))
+  iqr <- IQR(x)
+  outliers <- x < (quartiles[1] - 1.5 * iqr) | x > (quartiles[2] + 1.5 * iqr)
+  return(outliers)
+}
+
+# Apply the function to each column of df2_cleaned
+outliers <- apply(df2_cleaned, 2, find_outliers)
+
+# Print columns with outliers
+outlier_columns <- colnames(df2_cleaned)[apply(outliers, 2, any)]
+
+cat("Columns with outliers:\n")
+print(outlier_columns)
+
+
+
+```
+
+2.  Explore the relationships between pairs of features.a In the context
+    of the Online News Popularity dataset, produce: • Summary statistics
+    table: A table showing summary statistics (mean, median, standard
+    deviation, minimum, and maximum) for all continuous features in the
+    dataset. This table will provide an overview of the central tendency
+    and dispersion of the data, making it easier to understand the
+    general characteristics of the dataset. • Popularity categories
+    distribution table: A table displaying the frequency distribution of
+    articles categorized into 'popular' and 'non-popular' classes based
+    on the predefined threshold. This table will help assess the balance
+    between the two classes and provide insights into the overall
+    popularity of articles in the dataset. • Data channels distribution
+    table: A table illustrating the frequency distribution of articles
+    across different data channels (Lifestyle, Entertainment, Business,
+    Social Media, Technology, and World). This table will provide
+    insights into the prominence of various topics in the dataset and
+    their potential impact on article popularity. • Weekday distribution
+    table: A table presenting the frequency distribution of articles
+    published on different weekdays (Monday, Tuesday, Wednesday,
+    Thursday, Friday, Saturday, and Sunday). This table will help
+    analyze the influence of publication day on article popularity and
+    identify any trends or patterns related to weekdays. A table
+    illustrating the frequency distribution of articles published on
+    different weekdays (Monday through Sunday).
+
+This table aids in analyzing the influence of publication day on article
+popularity and identifying trends or patterns related to weekdays. You
+may perform cross-tabulation in relation to data channels and/or
+popularity categories. These tables will contribute to a deeper
+understanding of the dataset and its underlying structure, guiding your
+feature selection and modeling choices. Furthermore, they offer valuable
+insights into factors that could influence the popularity of news
+articles on Mashable. When presenting these tables in your HTML or PDF
+files, consider using various packages that enhance the appearance and
+readability of tables. By ensuring a visually appealing presentation,
+you can effectively communicate the information and insights derived
+from the dataset to your audience.
+
+3.  Descriptive tasks often involve visualizations, which can help
+    communicate your findings more effectively to your audience.
+    Visualizations enable stakeholders to grasp complex patterns and
+    relationships more easily, making it an essential part of any data
+    analysis project. Use ggplot to plot the last 3 tables described
+    above
+
+```{r 2 setup, include=TRUE}
+
+library(ggplot2)
+summary(df2$shares)
+
+summary_stats_table <- data.frame(
+feature = colnames(df2_cleaned),
+mean = sapply(df2_cleaned, mean, na.rm = TRUE),
+median = sapply(df2_cleaned, median, na.rm = TRUE),
+sd = sapply(df2_cleaned, sd, na.rm = TRUE),
+min = sapply(df2_cleaned, min, na.rm = TRUE),
+max = sapply(df2_cleaned, max, na.rm = TRUE)
+)
+
+print(summary_stats_table)
+
+
+# Define the threshold for popularity
+popularity_threshold <- 1400
+
+# Create a binary variable 'is_popular' based on the threshold
+df2_cleaned$is_popular <- ifelse(df2_cleaned$shares >= popularity_threshold, "popular", "non-popular")
+
+# Create a frequency distribution table for the 'is_popular' variable
+frequency_table <- table(df2_cleaned$is_popular)
+
+# Print the frequency distribution table
+print(frequency_table)
+
+#changing is_popular from character to numeric 
+for (i in 1:ncol(df2_cleaned)) {
+  if(is.character(df2_cleaned[, i])) df[,i] <- as.factor(df2_cleaned[,i])
+}
+
+#frequency table
+
+# Identify the data channel columns in the dataset
+data_channel_cols <- grep("data_channel_is_", colnames(df2_cleaned), value = TRUE)
+
+# Create a new column 'data_channel' and initialize it with 'Unknown'
+df2_cleaned$data_channel <- "Unknown"
+
+# For each article, find the data channel it belongs to
+for (col in data_channel_cols) {
+  channel_name <- gsub("data_channel_is_", "", col)
+  df2_cleaned$data_channel[df2_cleaned[[col]] == 1] <- channel_name
+}
+
+# Create a frequency distribution table for the 'data_channel' variable
+data_channels_frequency_table <- table(df2_cleaned$data_channel)
+
+# Print the data channels distribution table
+print(data_channels_frequency_table)
+
+# Identify the weekday columns in the dataset
+weekday_cols <- grep("weekday_is_", colnames(df2_cleaned), value = TRUE)
+
+# Create a new column 'weekday' and initialize it with 'Unknown'
+df2_cleaned$weekday <- "Unknown"
+
+# For each article, find the weekday it was published on
+for (col in weekday_cols) {
+  weekday_name <- gsub("weekday_is_", "", col)
+  df2_cleaned$weekday[df2_cleaned[[col]] == 1] <- weekday_name
+}
+
+# Create a frequency distribution table for the 'weekday' variable
+weekday_frequency_table <- table(df2_cleaned$weekday)
+
+# Print the weekday distribution table
+print(weekday_frequency_table)
+
+# Cross-tabulation with data channels
+cross_tab_data_channels <- table(df2_cleaned$weekday, df2_cleaned$data_channel)
+print(cross_tab_data_channels)
+
+# Cross-tabulation with popularity categories
+cross_tab_popularity <- table(df2_cleaned$weekday, df2_cleaned$is_popular)
+print(cross_tab_popularity)
+
+# Convert the frequency tables and cross-tabulations into data frames
+data_channels_df <- as.data.frame(data_channels_frequency_table)
+colnames(data_channels_df) <- c("data_channel", "count")
+
+weekday_df <- as.data.frame(weekday_frequency_table)
+colnames(weekday_df) <- c("weekday", "count")
+
+cross_tab_data_channels_df <- as.data.frame(cross_tab_data_channels)
+colnames(cross_tab_data_channels_df) <- c("weekday", "data_channel", "count")
+
+cross_tab_popularity_df <- as.data.frame(cross_tab_popularity)
+colnames(cross_tab_popularity_df) <- c("weekday", "is_popular", "count")
+
+# Plot the data channels distribution using ggplot2
+data_channels_plot <- ggplot(data_channels_df, aes(x = data_channel, y = count)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  theme_minimal() +
+  labs(title = "Data Channels Distribution", x = "Data Channel", y = "Count")
+print(data_channels_plot)
+
+# Plot the weekday distribution using ggplot2
+weekday_plot <- ggplot(weekday_df, aes(x = weekday, y = count)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  theme_minimal() +
+  labs(title = "Weekday Distribution", x = "Weekday", y = "Count")
+print(weekday_plot)
+
+# Plot the cross-tabulation of weekdays and data channels using ggplot2
+cross_tab_data_channels_plot <- ggplot(cross_tab_data_channels_df, aes(x = weekday, y = count, fill = data_channel)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  theme_minimal() +
+  labs(title = "Weekday vs Data Channel Distribution", x = "Weekday", y = "Count") +
+  scale_fill_brewer(palette = "Set1")
+print(cross_tab_data_channels_plot)
+
+# Plot the cross-tabulation of weekdays and popularity categories using ggplot2
+cross_tab_popularity_plot <- ggplot(cross_tab_popularity_df, aes(x = weekday, y = count, fill = is_popular)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  theme_minimal() +
+  labs(title = "Weekday vs Popularity Distribution", x = "Weekday", y = "Count") +
+  scale_fill_manual(values = c("non-popular" = "steelblue", "popular" = "coral"))
+print(cross_tab_popularity_plot)
+
+
+```
+
+As we can see from the plots above, the articles are more popular during
+weekdays than during weekends in any data_channel. One pattern that is
+standing out in that the unknown data_channel is constantly doing better
+than any other channel and on all days. Therefore to have a better
+result, it would be very helpful to be able to determine what unknown is
+made up of.
+
+## Regression
+
+Train and evaluate various regression algorithms, such as linear
+regression, random forests, and gradient boosting machines, to identify
+the best-performing model for predicting the number of shares. Select
+the best tuned model that you will use in final evaluations to report
+the test RMSPE and its uncertainty
+
+Here I have chosen three models: 1) Linear regression 2) Random Forest
+3) GBM
+
+We will be calculating the RMSPE, mean RMSPE and standard deviation of
+RMSPE for each model and determine which model gives a more accurate
+prediction.
+
+#Linear Regression
+
+```{r 3 setup, include = TRUE}
+
+n = 100
+rmspe <- c()
+for (i in 1: n){
+  ind <- sample(nrow(df2_cleaned), nrow(df2_cleaned)*0.8)
+  train <- df2_cleaned[ind, ]
+  test <- df2_cleaned[-ind, ]
+  # Suppress warnings for the lm() function
+  suppressWarnings({
+    # training the model
+    model_lm <- lm(shares ~., data = train)
+  })
+  # prediction
+  yhat <- predict(model_lm, test)
+  # Accuracy metric
+  rmspe[i] <- sqrt(mean((test$shares - yhat)^2))
+}
+# Calculate mean and standard deviation of rmspe
+mean_rmspe_lm <- mean(rmspe)
+sd_rmspe_lm <- sd(rmspe)
+
+print(mean_rmspe_lm)
+print(sd_rmspe_lm)
+
+# Confidence interval (assuming normal distribution)
+lower <- mean_rmspe_lm - 1.96 * sd_rmspe_lm
+upper <- mean_rmspe_lm + 1.96 * sd_rmspe_lm
+
+# Plotting
+plot(rmspe, col="purple", ylim = c(lower - 0.1*(upper-lower), upper + 0.1*(upper-lower)), main = "RMSPE distribution for Linear Regression Model")
+abline(a = mean_rmspe_lm, b = 0, col="red", lwd = 3)
+abline(a = lower, b = 0, col="blue", lwd = 2, lty = 2)
+abline(a = upper, b = 0, col="blue", lwd = 2, lty = 2)
+
+# Extract coefficients and remove the intercept
+coefficients_lm <- coef(model_lm)[-1]
+
+# Sort the coefficients by their absolute values
+sorted_coefficients_lm <- coefficients_lm[order(abs(coefficients_lm), decreasing = TRUE)]
+
+# Plot the feature importance
+barplot(sorted_coefficients_lm, main = "Feature Importance (Linear Regression Model)", xlab = "Features", ylab = "Coefficient", las = 2, cex.names = 0.7)
+
+```
+
+The RMSPE distribution for the Linear Regression Mode shows that the
+mean RMSPE is around 11470 with a standard deviaiton of 657. The
+accuracy of the model could be increased by increasing the number of
+loops to a certain extent and by taking care of those outliers
+previously mentioned. Here is how the outliers might be affecting this
+model:
+
+1.Coefficients: Outliers can greatly influence the estimated
+coefficients. They can potentially cause large shifts in the line of
+best fit, which would change the coefficients and potentially lead to
+incorrect conclusions about the relationship between the variables.
+
+2.  Significance Tests: Outliers can affect the results of significance
+    tests. They can cause variables to appear significant when they are
+    not, or cause variables to appear non-significant when they are.
+
+3.Assumption Violation: Outliers can cause the assumptions of the linear
+regression model to be violated. For example, outliers can cause the
+residuals to not be normally distributed or to have non-constant
+variance, both of which are assumptions of the linear regression model.
+
+The relative influence barplot indicates the importance of each
+variables in this model.
+
+1.Magnitude: The length of each bar corresponds to the magnitude of the
+corresponding regression coefficient. This is a measure of how much the
+dependent variable (in your case, 'shares') is expected to increase or
+decrease when that variable increases by one unit, assuming all other
+variables are held constant.
+
+2.Direction: The direction of each bar (positive or negative)
+corresponds to the sign of the coefficient. A positive bar indicates
+that the 'shares' is expected to increase when that variable increases,
+while a negative bar indicates that 'shares' is expected to decrease
+when that variable increases.
+
+3.  Relative Importance: The variables are sorted by the absolute value
+    of their coefficients, so the variables on the right of the plot
+    have the largest impact on the 'shares', while those on the left
+    have the smallest impact.
+
+# Random Forest
+
+```{r 4 setup, include = TRUE}
+library(randomForest)
+library(randomForestExplainer)
+library(rpart)
+n <- 100
+B <- 10
+RMSPERF <- c()
+for (i in 1:n) {
+  ind <- sample(nrow(df), nrow(df), replace = TRUE)
+  train <- df[ind, ]
+  test <- df[-ind, ]
+  modelRF <- randomForest(shares~., ntree = B, data = train) # RF
+  yhatRF <- predict(modelRF, test)
+  RMSPERF[i] <- sqrt(mean((test$shares - yhatRF)^2))
+}
+mean(RMSPERF)
+
+mean_rmspe <- mean(RMSPERF)
+sd_rmspe <- sd(RMSPERF)
+
+print(mean_rmspe)
+print(sd_rmspe)
+
+# Confidence interval (assuming normal distribution)
+lower <- mean_rmspe - 1.96 * sd_rmspe
+upper <- mean_rmspe + 1.96 * sd_rmspe
+
+# Plotting
+plot(RMSPERF, col="purple", ylim = c(lower - 0.1*(upper-lower), upper + 0.1*(upper-lower)))
+abline(a = mean_rmspe, b = 0, col="red", lwd = 3)
+abline(a = lower, b = 0, col="blue", lwd = 2, lty = 2)
+abline(a = upper, b = 0, col="blue", lwd = 2, lty = 2)
+
+# Variable importance plot for the random forest model (model3)
+varImpPlot(modelRF, main = "Variable Importance (Random Forest Model)")
+
+min_depth_frame <- min_depth_distribution(modelRF)
+importance_frame <- measure_importance(modelRF)
+importance_frame
+
+plot_multi_way_importance(importance_frame, x_measure = "mean_min_depth",
+                          y_measure = "node_purity_increase",
+                          size_measure = "p_value", no_of_labels = 6)
+
+plot_min_depth_distribution(min_depth_frame, mean_sample = "all_trees", k =20,
+                            main = "Distribution of minimal depth and its mean")
+
+
+```
+
+Unfortunately I was unable to run more loops with more trees as my
+laptop was not cooperating. Note that once n and B increased the
+prediction above will be much better.
+
+The Random Forest provided us with a mean RMSPE of 12660 which is
+greater than the the linear model above. Therefore we can conclude that
+the linear model is for now more accurate than the random Forest model.
+However note that this conclusion might be flawed due to the number of
+loops and trees used.
+
+# GBM
+
+```{r 5 setup, include=TRUE}
+library(gbm)
+
+df <- OnlineNewsPopularity
+str(df)
+df2 <- subset(df, select = -url)
+
+# Remove rows with NAs
+df2 <- df2[complete.cases(df), ]
+
+# Convert character columns to factors
+for (i in 1:ncol(df2)) {
+  if(is.character(df2[, i])) df2[,i] <- as.factor(df2[,i])
+}
+
+# Grid search
+h <- seq(0.01, 0.1, 0.01)
+B <- c(1, 5, 10, 15, 20)
+D <- 1:2
+grid <- expand.grid(D = D, B = B, h = h)
+grid$rmspe <- rep(0, nrow(grid))
+
+# Calculate RMSPE for each combination of parameters
+RMSPE <- c()
+for(i in 1:nrow(grid)) {
+  test_mse <- c()
+  for (j in 1:5) {
+    # Split into training and test sets
+    ind <- sample(nrow(df2), nrow(df2), replace = TRUE)
+    train <- df2[ind,]
+    test <- df2[-ind,]
+    
+    # Train GBM model
+    model.gbm <- gbm(
+      shares ~ .,
+      data = train,
+      distribution = "gaussian",
+      n.trees = grid[i, "B"],
+      interaction.depth = grid[i, "D"],
+      shrinkage = grid[i, "h"],
+      bag.fraction = 1
+    )
+    
+    # Calculate RMSPE for test set
+    yhat <- predict(model.gbm, test, n.trees = grid[i, "B"])
+    test_mse[j] <- mean((test$shares - yhat) ^ 2)
+  }
+  grid$rmspe[i] <- mean(test_mse)
+  RMSPE[i] <- sqrt(mean(test_mse))
+}
+
+# Calculate mean and standard deviation of RMSPE
+mean_rmspe <- mean(RMSPE)
+sd_rmspe <- sd(RMSPE)
+
+# Confidence interval (assuming normal distribution)
+lower <- mean_rmspe - 1.96 * sd_rmspe
+upper <- mean_rmspe + 1.96 * sd_rmspe
+
+# Plot RMSPE with mean and confidence interval
+plot(RMSPE, col="purple", ylim = c(lower - 0.1*(upper-lower), upper + 0.1*(upper-lower)))
+abline(a = mean_rmspe, b = 0, col="red", lwd = 3)
+abline(a = lower, b = 0, col="blue", lwd = 2, lty = 2)
+abline(a = upper, b = 0, col="blue", lwd = 2, lty = 2)
+
+# Compute the relative influence of each feature
+feature_importance_gbm <- summary(model.gbm)
+
+# Plot the feature importance
+barplot(feature_importance_gbm$rel.inf, main = "Feature Importance (GBM Model)", xlab = "Features", ylab = "Coefficient", las = 2, cex.names = 0.7)
+
+# Output mean and standard deviation of RMSPE
+cat("Mean RMSPE:", mean_rmspe, "\n")
+cat("SD RMSPE:", sd_rmspe, "\n")
+
+
+```
+
+Once again, since the gbm model with cross validation also takes a
+significant amount of time to run, I was unable to use larger B values
+and test different combinations of shrinkage value as well as run it for
+multiple loops.
+
+GBM provided us with a mean RMSPE of 11537 with a standard deviation of
+673 which is very similar to the linear model.But once again due to not
+having the optimal hyper parameter for this model it is difficult to
+compare the models above.
+
+With the current results from the models we can conclude that the Linear
+Regression mode provided a higher degree of accuracy than the other
+models.
+
+## Classification
+
+Interpreting the models for both regression and classification tasks is
+essential to understand the key features driving article popularity and
+provide actionable insights for content creators and marketers. To
+achieve this, you can follow these steps: • Feature importance analysis:
+Examine the importance of each feature in your best-performing models
+for both regression and classification tasks. Most machine learning
+algorithms, like random forests and gradient boosting machines provide
+methods to extract feature importance or coefficients. This information
+allows you to rank the features based on their contribution to the
+model's performance. • Visualize feature importance: Create
+visualizations (e.g., bar charts) to represent the feature importance
+scores obtained from your models. This will help you effectively
+communicate the relative importance of each feature in predicting
+article popularity. • Inspect the confusion table: Analyze the
+classification model by inspecting the confusion table.
+
+
+Here I have chosn the following models:
+
+1) Logistic regression
+2) Bagging
+3) Random Forest
+4) GBM
+
+```{r 6 setup, include = TRUE}
+library(ROCR)
+library(rpart)
+library(randomForest)
+library(randomForestExplainer)
+
+library(readr)
+OnlineNewsPopularity <- read_csv("OnlineNewsPopularity.csv")
+
+df <- OnlineNewsPopularity
+
+str(df)
+
+df3 <- subset(df, select = -url)
+
+which(is.na(df3))
+
+df3 <- df3[complete.cases(df), ]
+
+for (i in 1:ncol(df3)) {
+  if(is.character(df3[, i])) df[,i] <- as.factor(df3[,i])
+}
+df3$shares <- ifelse(df3$shares >= 3395, 1, 0)
+df3$shares <- factor(df3$shares, levels = c("1", "0"))
+
+# Split data into training and test sets
+
+df3 <- df3[complete.cases(df3$shares), ]
+
+n <- 100
+B <- 10
+AUC1 <- c()
+AUC2 <- c()
+AUC3 <- c()
+for (i in 1:n) {
+  ind <- sample(nrow(df3), nrow(df3), replace = TRUE)
+  train2 <- df3[ind, ]
+  test2 <- df3[-ind, ]
+  p = ncol(train2)-1
+  
+  model1 <- glm(shares ~ ., family = binomial(link = "logit"), data = train2)
+  
+  model2 <- randomForest(shares~.,
+                         ntree = B, mtry = p, data = train2) #Bagged
+  model3 <- randomForest(shares~.,
+                         ntree = B, data = train2) # RF
+  phat1 <- predict(model1, test2, type = "response")
+  phat2 <- predict(model2, test2, type = "prob")
+  phat3 <- predict(model3, test2, type = "prob")
+  #AUC1
+  pred_rocr1 <- prediction(phat1, as.numeric(as.character(test2$shares)))
+  auc_ROCR1 <- performance(pred_rocr1, measure = "auc")
+  AUC1[i] <- auc_ROCR1@y.values[[1]]
+  #AUC2
+  pred_rocr2 <- prediction(phat2[,2], test2$shares)
+  auc_ROCR2 <- performance(pred_rocr2, measure = "auc")
+  AUC2[i] <- auc_ROCR2@y.values[[1]]
+  #AUC3
+  pred_rocr3 <- prediction(phat3[,2], test2$shares)
+  auc_ROCR3 <- performance(pred_rocr3, measure = "auc")
+  AUC3[i] <- auc_ROCR3@y.values[[1]]
+}
+
+mean_AUC1 <- mean(AUC1)
+sd_AUC1 <- sd(AUC1)
+
+# Confidence interval (assuming normal distribution)
+lower <- mean_AUC1 - 1.96 * sd_AUC1
+upper <- mean_AUC1 + 1.96 * sd_AUC1
+
+# Plotting
+plot(AUC1, col="purple", ylim = c(lower - 0.1*(upper-lower), upper + 0.1*(upper-lower)))
+abline(a = mean_AUC1, b = 0, col="red", lwd = 3)
+abline(a = lower, b = 0, col="blue", lwd = 2, lty = 2)
+abline(a = upper, b = 0, col="blue", lwd = 2, lty = 2)
+
+
+mean_AUC2 <- mean(AUC2)
+sd_AUC2 <- sd(AUC2)
+
+# Confidence interval (assuming normal distribution)
+lower <- mean_AUC2 - 1.96 * sd_AUC2
+upper <- mean_AUC2 + 1.96 * sd_AUC2
+
+# Plotting
+plot(AUC2, col="purple", ylim = c(lower - 0.1*(upper-lower), upper + 0.1*(upper-lower)))
+abline(a = mean_AUC2, b = 0, col="red", lwd = 3)
+abline(a = lower, b = 0, col="blue", lwd = 2, lty = 2)
+abline(a = upper, b = 0, col="blue", lwd = 2, lty = 2)
+
+
+mean_AUC3 <- mean(AUC3)
+sd_AUC3 <- sd(AUC3)
+
+# Confidence interval (assuming normal distribution)
+lower <- mean_AUC3 - 1.96 * sd_AUC3
+upper <- mean_AUC3 + 1.96 * sd_AUC3
+
+# Plotting
+plot(AUC3, col="purple", ylim = c(lower - 0.1*(upper-lower), upper + 0.1*(upper-lower)))
+abline(a = mean_AUC3, b = 0, col="red", lwd = 3)
+abline(a = lower, b = 0, col="blue", lwd = 2, lty = 2)
+abline(a = upper, b = 0, col="blue", lwd = 2, lty = 2)
+
+```
+For this classification problem we will be using AUC to measure the accuracy of the models.
+
+From the plot above we are having a significantly low AUC for all three models. This is due to running the three models with very low n and B. Once the n and B are increased the accuracy of the model will increase as well.
+
+However with the result obtained we can conclude that Bagging was the better model out of the three.
+
+```{r 7 setup, include = TRUE}
+# Extract coefficients for the logistic regression model
+coefficients_glm <- coef(model1)
+
+# Sort the coefficients by their absolute values
+sorted_coefficients_glm <- coefficients_glm[order(abs(coefficients_glm), decreasing = TRUE)]
+
+# Plot the coefficients
+barplot(sorted_coefficients_glm, main = "Coefficients (Logistic Regression Model)", xlab = "Features", ylab = "Coefficient", las = 2, cex.names = 0.7)
+
+library(randomForestExplainer)
+
+# Extract feature importance for the random forest model
+importance_bagging <- importance(model2)
+
+
+# Sort the features by their importance
+sorted_importance_bagging <- importance_bagging[order(importance_bagging, decreasing = TRUE),]
+# Plot the feature importance
+barplot(sorted_importance_bagging, main = "Feature Importance (Bagging Model)", xlab = "Features", ylab = "Importance", las = 2, cex.names = 0.7)
+
+# Predict on the test set using the random forest model
+predictions_bagging <- predict(model3, test2, type = "class")
+
+# Create a confusion table
+confusion_table <- table(Predicted = predictions_bagging, Actual = test2$shares)
+print(confusion_table)
+
+
+# Extract feature importance for the random forest model
+importance_rf <- importance(model3)
+
+# Sort the features by their importance
+sorted_importance_rf <- importance_rf[order(importance_rf, decreasing = TRUE),]
+# Plot the feature importance
+barplot(sorted_importance_rf, main = "Feature Importance (Random Forest Model)", xlab = "Features", ylab = "Importance", las = 2, cex.names = 0.7)
+
+# Predict on the test set using the random forest model
+predictions_rf <- predict(model3, test2, type = "class")
+
+# Create a confusion table
+confusion_table <- table(Predicted = predictions_rf, Actual = test2$shares)
+print(confusion_table)
+
+```
+The relative Influence plot abvoe provides us insight on the variables that is the most important. We can note here that both the logistic model and the linear model both have positive words as the most important feature.
+
+While bagging and random Forest have as the most important feature Key Words average.
+
+```{r 8 setup, include = TRUE}
+# Load the randomForest package
+library(randomForest)
+
+# Variable importance plot for the random forest model (model3)
+varImpPlot(model3, main = "Variable Importance (Random Forest Model)")
+
+min_depth_frame <- min_depth_distribution(model3)
+importance_frame <- measure_importance(model3)
+importance_frame
+
+plot_multi_way_importance(importance_frame, x_measure = "mean_min_depth",
+                          y_measure = "gini_decrease",
+                          size_measure = "p_value", no_of_labels = 6)
+
+plot_min_depth_distribution(min_depth_frame, mean_sample = "all_trees", k =20,
+                            main = "Distribution of minimal depth and its mean")
+
+# Variable importance plot for the bagged random forest model (model2)
+varImpPlot(model2, main = "Variable Importance (Bagged Random Forest Model)")
+
+min_depth_frame <- min_depth_distribution(model2)
+importance_frame <- measure_importance(model2)
+importance_frame
+
+plot_multi_way_importance(importance_frame, x_measure = "mean_min_depth",
+                          y_measure = "gini_decrease",
+                          size_measure = "p_value", no_of_labels = 6)
+
+plot_min_depth_distribution(min_depth_frame, mean_sample = "all_trees", k =20,
+                            main = "Distribution of minimal depth and its mean")
+
+```
+
+Variable Importance Plot: This plot shows the importance of each feature in the dataset as determined by the Random Forest model. The importance is calculated based on the decrease in the model's performance when the feature's values are permuted across the out-of-bag samples. A higher decrease means the feature is more important.
+
+Multi-way Importance Plot: This plot shows the relationship between multiple measures of variable importance. In this case, it shows the relationship between the mean minimal depth of a variable in the trees (a measure of how early in the trees the variable tends to split the data), and the Gini decrease, which is a measure of how much each variable contributes to the homogeneity of the nodes and leaves in the resulting Random Forest.
+
+The size of the points represents the p-value, which is a measure of the statistical significance of the variable's importance. A smaller p-value indicates higher significance.
+
+Minimal Depth Distribution Plot: This plot shows the distribution of the minimal depth of each variable in the trees of the Random Forest. The minimal depth of a variable is the depth at which the variable first splits the data in each tree. A lower minimal depth indicates that the variable is more important, because it is used to make decisions earlier in the trees.
+
+The plot shows the distribution of the minimal depth across all the trees for each variable, and also shows the mean minimal depth. This can give you an idea of not only which variables are important on average, but also how much the importance of each variable varies across different trees in the forest.
+
+As we can see from the plots above the variable that is the most important on average is Keywords average
+
+```{r 9 setup, include=TRUE}
+
+library(gbm)
+
+# Remove rows with NAs
+df3 <- df3[complete.cases(df3), ]
+
+# Convert character columns to factors
+for (i in 1:ncol(df3)) {
+  if(is.character(df3[, i])) df3[,i] <- as.factor(df3[,i])
+}
+
+# Grid search
+h <- seq(0.01, 0.1, 0.01)
+B <- c(1, 5, 10, 15, 20)
+D <- 1:2
+grid <- expand.grid(D = D, B = B, h = h)
+grid$AUC4 <- rep(0, nrow(grid))
+
+# Calculate RMSPE for each combination of parameters
+AUC4 <- c()
+for(i in 1:nrow(grid)) {
+  test_mse <- c()
+  for (j in 1:5) {
+    # Split into training and test sets
+    ind <- sample(nrow(df3), nrow(df3), replace = TRUE)
+    train <- df3[ind,]
+    test <- df3[-ind,]
+    
+    # Train GBM model
+    model.gbm <- gbm(
+      shares ~ .,
+      data = train,
+      distribution = "gaussian",
+      n.trees = grid[i, "B"],
+      interaction.depth = grid[i, "D"],
+      shrinkage = grid[i, "h"],
+      bag.fraction = 1
+    )
+    
+    # Calculate RMSPE for test set
+    phat4 <- predict(model.gbm, test, n.trees = grid[i, "B"])
+    pred_rocr4 <- prediction(phat4, as.numeric(as.character(test$shares)))
+    auc_ROCR4 <- performance(pred_rocr4, measure = "auc")
+    AUC4[i] <- auc_ROCR4@y.values[[1]]
+  }
+
+}
+
+mean_AUC4 <- mean(AUC4)
+sd_AUC4 <- sd(AUC4)
+
+# Confidence interval (assuming normal distribution)
+lower <- mean_AUC4 - 1.96 * sd_AUC4
+upper <- mean_AUC4 + 1.96 * sd_AUC4
+
+# Plotting
+plot(AUC4, col="purple", ylim = c(lower - 0.1*(upper-lower), upper + 0.1*(upper-lower)))
+abline(a = mean_AUC4, b = 0, col="red", lwd = 3)
+abline(a = lower, b = 0, col="blue", lwd = 2, lty = 2)
+abline(a = upper, b = 0, col="blue", lwd = 2, lty = 2)
+
+# Compute the relative influence of each feature
+feature_importance_gbm <- summary(model.gbm)
+
+# Plot the feature importance
+barplot(
+  feature_importance_gbm$rel.inf,
+  main = "Feature Importance (GBM Model)",
+  xlab = "Features",
+  ylab = "Relative Influence",
+  las = 2,
+  cex.names = 0.7)
+
+# Output mean and standard deviation of RMSPE
+cat("Mean AUC4:", mean_rmspe, "\n")
+cat("SD AUC4:", sd_rmspe, "\n")
+```
